@@ -1,0 +1,846 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>可绘制 / 可编辑的数学曲线绘图器（C¹ 分段三次贝塞尔）</title>
+  <style>
+    :root{
+      --bg:#0b0f14;
+      --panel:#0f1620;
+      --panel2:#0c121b;
+      --text:#e6edf6;
+      --muted:#9fb0c5;
+      --grid:rgba(255,255,255,.06);
+      --grid2:rgba(255,255,255,.035);
+      --border:rgba(255,255,255,.10);
+      --primary:#6aa7ff;
+      --danger:#ff6a6a;
+      --btn:#121b27;
+      --btnHover:#162235;
+      --btnActive:#1a2d4a;
+      --shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; }
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color:var(--text);
+      background:var(--bg);
+      overflow:hidden;
+    }
+
+    #app{
+      position:fixed;
+      inset:0;
+      display:flex;
+      flex-direction:column;
+    }
+
+    .topbar{
+      height:56px;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:10px 12px;
+      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,0));
+      border-bottom:1px solid var(--border);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .group{ display:flex; gap:8px; align-items:center; }
+    .spacer{ flex:1; }
+
+    button{
+      appearance:none;
+      border:1px solid var(--border);
+      background:var(--btn);
+      color:var(--text);
+      padding:8px 10px;
+      border-radius:10px;
+      cursor:pointer;
+      font-size:13px;
+      letter-spacing:.2px;
+      user-select:none;
+      transition: background .12s ease, border-color .12s ease, transform .06s ease;
+    }
+    button:hover{ background:var(--btnHover); }
+    button:active{ transform: translateY(1px); }
+    button.active{
+      background:var(--btnActive);
+      border-color: rgba(106,167,255,.55);
+      box-shadow: 0 0 0 1px rgba(106,167,255,.18) inset;
+    }
+    button.danger{
+      border-color: rgba(255,106,106,.45);
+    }
+    button.danger:hover{ background: rgba(255,106,106,.12); }
+    button:disabled{
+      opacity:.45;
+      cursor:not-allowed;
+    }
+
+    .info{
+      display:flex;
+      gap:14px;
+      align-items:center;
+      padding:8px 12px;
+      border-radius:12px;
+      background: rgba(15,22,32,.65);
+      border:1px solid var(--border);
+      box-shadow: var(--shadow);
+      font-size:13px;
+      color: var(--muted);
+      user-select:none;
+      white-space:nowrap;
+    }
+    .info strong{ color:var(--text); font-weight:600; }
+
+    .canvas-wrap{
+      position:relative;
+      flex:1;
+      min-height:0;
+      background: var(--bg);
+    }
+
+    canvas{
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      display:block;
+    }
+
+    .legend{
+      position:absolute;
+      top:12px;
+      right:12px;
+      width:220px;
+      padding:10px 12px;
+      background: rgba(12,18,27,.72);
+      border:1px solid var(--border);
+      border-radius:14px;
+      box-shadow: var(--shadow);
+      user-select:none;
+      pointer-events:none;
+    }
+    .legend h3{
+      margin:0 0 8px 0;
+      font-size:13px;
+      font-weight:650;
+      color: var(--text);
+      letter-spacing:.2px;
+    }
+    .legend .row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      font-size:12px;
+      color: var(--muted);
+      padding:3px 0;
+    }
+    .swatch{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      min-width:84px;
+      justify-content:flex-end;
+    }
+    .line{
+      width:44px;
+      height:0;
+      border-top:2px solid rgba(255,255,255,.40);
+      border-radius:2px;
+    }
+    .line.sel{
+      border-top-color: rgba(255,255,255,.85);
+      border-top-width:3px;
+    }
+    .dot{
+      width:10px;
+      height:10px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.25);
+      background:#ffd54a;
+    }
+    .dot.ctrl{
+      background:#4aa8ff;
+    }
+
+    .hint{
+      position:absolute;
+      left:12px;
+      bottom:12px;
+      padding:10px 12px;
+      max-width:min(560px, calc(100% - 24px));
+      background: rgba(12,18,27,.72);
+      border:1px solid var(--border);
+      border-radius:14px;
+      box-shadow: var(--shadow);
+      color: var(--muted);
+      font-size:12px;
+      line-height:1.45;
+      user-select:none;
+      pointer-events:none;
+      white-space:pre-line;
+    }
+    .kbd{
+      display:inline-block;
+      padding:1px 6px;
+      border:1px solid rgba(255,255,255,.16);
+      border-bottom-color: rgba(255,255,255,.10);
+      background: rgba(255,255,255,.06);
+      border-radius:8px;
+      color: var(--text);
+      font-size:11px;
+      line-height:1.6;
+      transform: translateY(-1px);
+      margin:0 2px;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="topbar">
+      <div class="group">
+        <button id="btnDraw" class="active" title="快捷键 1">绘制</button>
+        <button id="btnSelect" title="快捷键 2">选择/编辑</button>
+        <button id="btnShow" title="切换是否显示所有曲线的控制点">显示控制点</button>
+      </div>
+      <div class="group">
+        <button id="btnDelete" class="danger" disabled title="Delete">删除选中</button>
+        <button id="btnClear" class="danger" title="清空全部曲线">清空</button>
+      </div>
+      <div class="spacer"></div>
+      <div class="info" id="info">
+        <span>曲线总数：<strong id="infoCount">0</strong></span>
+        <span>当前选中：<strong id="infoSelected">-</strong></span>
+      </div>
+    </div>
+    <div class="canvas-wrap">
+      <canvas id="c"></canvas>
+      <div class="legend">
+        <h3>图例</h3>
+        <div class="row"><span>曲线</span><span class="swatch"><span class="line"></span></span></div>
+        <div class="row"><span>选中曲线</span><span class="swatch"><span class="line sel"></span></span></div>
+        <div class="row"><span>锚点</span><span class="swatch"><span class="dot"></span><span>黄</span></span></div>
+        <div class="row"><span>控制点</span><span class="swatch"><span class="dot ctrl"></span><span>蓝</span></span></div>
+      </div>
+      <div class="hint" id="hint"></div>
+    </div>
+  </div>
+
+  <script>
+  (() => {
+    "use strict";
+
+    const canvas = document.getElementById("c");
+    const ctx = canvas.getContext("2d");
+
+    const btnDraw = document.getElementById("btnDraw");
+    const btnSelect = document.getElementById("btnSelect");
+    const btnShow = document.getElementById("btnShow");
+    const btnDelete = document.getElementById("btnDelete");
+    const btnClear = document.getElementById("btnClear");
+    const infoCount = document.getElementById("infoCount");
+    const infoSelected = document.getElementById("infoSelected");
+    const hint = document.getElementById("hint");
+
+    const palette = ["#6aa7ff","#ff6ad5","#62d5a8","#ffc84a","#a38bff","#ff8a5b","#4ad1ff","#b6ff4a"];
+    let nextId = 1;
+
+    /** @type {Array<{id:number,color:string,anchors:Array<{x:number,y:number}>,handlesOut:Array<{x:number,y:number}>,handlesIn:Array<{x:number,y:number}>}>} */
+    const curves = [];
+
+    const state = {
+      mode: "draw", // "draw" | "select"
+      showAllControls: false,
+      selectedId: null,
+      isPointerDown: false,
+      isDragging: false,
+      lastPos: null,
+      drawSamples: [],
+      hover: null, // {curveId,type,idx}
+      drag: null,  // {curveId, kind:"anchor"|"handleOut"|"handleIn"|"curve", idx:number}
+      dpr: 1
+    };
+
+    const GRID_SPACING = 32;
+    const SAMPLE_MIN_DIST = 1.2;
+    const RDP_EPSILON = 2.5;
+    const HIT_T = 7;
+
+    const HANDLE_R = 6;
+    const ANCHOR_R = 6.5;
+
+    function v(x, y){ return {x, y}; }
+    function add(a,b){ return {x:a.x+b.x, y:a.y+b.y}; }
+    function sub(a,b){ return {x:a.x-b.x, y:a.y-b.y}; }
+    function mul(a,s){ return {x:a.x*s, y:a.y*s}; }
+    function len(a){ return Math.hypot(a.x, a.y); }
+    function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+    function clamp(t, a, b){ return Math.max(a, Math.min(b, t)); }
+    function reflect(point, center){ return add(center, sub(center, point)); } // 2*center - point
+
+    function getMousePos(ev){
+      const r = canvas.getBoundingClientRect();
+      return v(ev.clientX - r.left, ev.clientY - r.top);
+    }
+
+    function resize(){
+      const r = canvas.getBoundingClientRect();
+      const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+      state.dpr = dpr;
+      const w = Math.max(1, Math.floor(r.width * dpr));
+      const h = Math.max(1, Math.floor(r.height * dpr));
+      if (canvas.width !== w || canvas.height !== h){
+        canvas.width = w;
+        canvas.height = h;
+      }
+    }
+
+    function setMode(mode){
+      state.mode = mode;
+      btnDraw.classList.toggle("active", mode === "draw");
+      btnSelect.classList.toggle("active", mode === "select");
+      canvas.style.cursor = mode === "draw" ? "crosshair" : "default";
+      state.isPointerDown = false;
+      state.isDragging = false;
+      state.drawSamples = [];
+      state.drag = null;
+      state.hover = null;
+      render();
+    }
+
+    function setShowAllControls(on){
+      state.showAllControls = on;
+      btnShow.classList.toggle("active", on);
+      render();
+    }
+
+    function setSelected(id){
+      state.selectedId = id;
+      btnDelete.disabled = (id == null);
+      render();
+    }
+
+    function updateInfo(){
+      infoCount.textContent = String(curves.length);
+      infoSelected.textContent = state.selectedId == null ? "-" : String(state.selectedId);
+    }
+
+    function updateHint(){
+      if (state.mode === "draw"){
+        hint.textContent =
+          "绘制模式：按住左键自由画线，松开后自动拟合为 C¹ 连续的分段三次贝塞尔曲线。\n" +
+          "快捷键：" +
+          " " + "1=绘制" +
+          " " + "2=选择/编辑" +
+          " " + "Delete=删除选中" +
+          " " + "Esc=取消选中";
+      } else {
+        hint.innerHTML =
+          "选择/编辑模式：点击曲线选中；拖动黄点(锚点)移动局部；拖动蓝点(控制点)改弯曲度(保持 C¹ 连续)。\n" +
+          "Shift + 拖锚点 或 拖曲线本体：整体平移。\n" +
+          "快捷键：" +
+          " <span class='kbd'>1</span>绘制" +
+          " <span class='kbd'>2</span>选择" +
+          " <span class='kbd'>Delete</span>删除" +
+          " <span class='kbd'>Esc</span>取消选中";
+      }
+    }
+
+    function drawGrid(w, h){
+      ctx.save();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--grid");
+      ctx.beginPath();
+      for (let x = 0; x <= w; x += GRID_SPACING){
+        ctx.moveTo(x + 0.5, 0);
+        ctx.lineTo(x + 0.5, h);
+      }
+      for (let y = 0; y <= h; y += GRID_SPACING){
+        ctx.moveTo(0, y + 0.5);
+        ctx.lineTo(w, y + 0.5);
+      }
+      ctx.stroke();
+
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--grid2");
+      ctx.beginPath();
+      const half = GRID_SPACING / 2;
+      for (let x = 0; x <= w; x += half){
+        if ((x / half) % 2 === 0) continue;
+        ctx.moveTo(x + 0.5, 0);
+        ctx.lineTo(x + 0.5, h);
+      }
+      for (let y = 0; y <= h; y += half){
+        if ((y / half) % 2 === 0) continue;
+        ctx.moveTo(0, y + 0.5);
+        ctx.lineTo(w, y + 0.5);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function bezierPoint(p0, p1, p2, p3, t){
+      // 三次贝塞尔曲线公式：
+      // B(t) = (1−t)^3 P0 + 3(1−t)^2 t P1 + 3(1−t) t^2 P2 + t^3 P3,  t∈[0,1]
+      const u = 1 - t;
+      const b0 = u*u*u;
+      const b1 = 3*u*u*t;
+      const b2 = 3*u*t*t;
+      const b3 = t*t*t;
+      return {
+        x: b0*p0.x + b1*p1.x + b2*p2.x + b3*p3.x,
+        y: b0*p0.y + b1*p1.y + b2*p2.y + b3*p3.y
+      };
+    }
+
+    function pointToSegmentDistance(p, a, b){
+      const ab = sub(b, a);
+      const ap = sub(p, a);
+      const ab2 = ab.x*ab.x + ab.y*ab.y;
+      let t = 0;
+      if (ab2 > 1e-9){
+        t = (ap.x*ab.x + ap.y*ab.y) / ab2;
+        t = clamp(t, 0, 1);
+      }
+      const proj = add(a, mul(ab, t));
+      return dist(p, proj);
+    }
+
+    function rdp(points, epsilon){
+      // Ramer–Douglas–Peucker 轨迹抽稀：递归找出距线段最远点，超过阈值则保留并继续分割
+      if (points.length <= 2) return points.slice();
+
+      const a = points[0];
+      const b = points[points.length - 1];
+      let maxD = -1;
+      let idx = -1;
+      for (let i = 1; i < points.length - 1; i++){
+        const d = pointToSegmentDistance(points[i], a, b);
+        if (d > maxD){
+          maxD = d;
+          idx = i;
+        }
+      }
+      if (maxD <= epsilon){
+        return [a, b];
+      }
+      const left = rdp(points.slice(0, idx + 1), epsilon);
+      const right = rdp(points.slice(idx), epsilon);
+      return left.slice(0, -1).concat(right);
+    }
+
+    function anchorsToBezierControls(anchors){
+      // Catmull-Rom → Bézier 转换（边界点越界则用自身代替）：
+      // P1_i = A_i     + (A_{i+1} - A_{i-1}) / 6
+      // P2_i = A_{i+1} − (A_{i+2} - A_i)     / 6
+      const n = anchors.length;
+      const segCount = n - 1;
+      const handlesOut = new Array(segCount);
+      const handlesIn = new Array(segCount);
+
+      for (let i = 0; i < segCount; i++){
+        const A_im1 = anchors[i - 1] || anchors[i];
+        const A_i   = anchors[i];
+        const A_ip1 = anchors[i + 1];
+        const A_ip2 = anchors[i + 2] || anchors[i + 1];
+        handlesOut[i] = add(A_i, mul(sub(A_ip1, A_im1), 1/6));
+        handlesIn[i]  = sub(A_ip1, mul(sub(A_ip2, A_i),   1/6));
+      }
+      return {handlesOut, handlesIn};
+    }
+
+    function buildCurveFromSamples(samples){
+      const anchors = rdp(samples, RDP_EPSILON);
+      if (anchors.length < 2) return null;
+      const {handlesOut, handlesIn} = anchorsToBezierControls(anchors);
+      const id = nextId++;
+      const color = palette[(id - 1) % palette.length];
+      return {id, color, anchors, handlesOut, handlesIn};
+    }
+
+    function getCurveById(id){
+      return curves.find(c => c.id === id) || null;
+    }
+
+    function drawCurve(curve, selected){
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(curve.anchors[0].x, curve.anchors[0].y);
+      for (let i = 0; i < curve.anchors.length - 1; i++){
+        const p0 = curve.anchors[i];
+        const p1 = curve.handlesOut[i];
+        const p2 = curve.handlesIn[i];
+        const p3 = curve.anchors[i + 1];
+        ctx.bezierCurveTo(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+      }
+
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = selected ? "rgba(255,255,255,.90)" : curve.color;
+      ctx.lineWidth = selected ? 3.25 : 2.2;
+      if (selected){
+        ctx.shadowColor = "rgba(106,167,255,.35)";
+        ctx.shadowBlur = 12;
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawControls(curve, emphasis){
+      ctx.save();
+      ctx.setLineDash([6, 6]);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(255,255,255,.25)";
+
+      ctx.beginPath();
+      for (let i = 0; i < curve.anchors.length; i++){
+        const a = curve.anchors[i];
+        if (i > 0){
+          const hin = curve.handlesIn[i - 1];
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(hin.x, hin.y);
+        }
+        if (i < curve.anchors.length - 1){
+          const hout = curve.handlesOut[i];
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(hout.x, hout.y);
+        }
+      }
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+
+      for (let i = 0; i < curve.anchors.length; i++){
+        const a = curve.anchors[i];
+        drawPoint(a, ANCHOR_R, "#ffd54a", emphasis ? 1 : 0.85);
+      }
+      for (let i = 0; i < curve.handlesOut.length; i++){
+        drawPoint(curve.handlesOut[i], HANDLE_R, "#4aa8ff", emphasis ? 1 : 0.75);
+      }
+      for (let i = 0; i < curve.handlesIn.length; i++){
+        drawPoint(curve.handlesIn[i], HANDLE_R, "#4aa8ff", emphasis ? 1 : 0.75);
+      }
+
+      ctx.restore();
+    }
+
+    function drawPoint(p, r, fill, alpha){
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = fill;
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(0,0,0,.55)";
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawDrawPreview(){
+      if (!state.isPointerDown || state.drawSamples.length < 2) return;
+      ctx.save();
+      ctx.globalAlpha = 0.7;
+      ctx.setLineDash([6, 6]);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(255,255,255,.55)";
+      ctx.beginPath();
+      ctx.moveTo(state.drawSamples[0].x, state.drawSamples[0].y);
+      for (let i = 1; i < state.drawSamples.length; i++){
+        ctx.lineTo(state.drawSamples[i].x, state.drawSamples[i].y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function render(){
+      resize();
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+
+      ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--bg");
+      ctx.fillRect(0, 0, w, h);
+      drawGrid(w, h);
+
+      for (const c of curves){
+        const selected = c.id === state.selectedId;
+        drawCurve(c, selected);
+      }
+
+      for (const c of curves){
+        const selected = c.id === state.selectedId;
+        if (selected || state.showAllControls){
+          drawControls(c, selected);
+        }
+      }
+
+      drawDrawPreview();
+
+      updateInfo();
+      updateHint();
+    }
+
+    function hitTestCurve(curve, p, threshold){
+      // 命中检测：每段贝塞尔用 16 段折线近似，取点到折线段最短距离
+      const segCount = curve.anchors.length - 1;
+      let best = Infinity;
+      for (let i = 0; i < segCount; i++){
+        const p0 = curve.anchors[i];
+        const p1 = curve.handlesOut[i];
+        const p2 = curve.handlesIn[i];
+        const p3 = curve.anchors[i + 1];
+        let prev = bezierPoint(p0, p1, p2, p3, 0);
+        for (let k = 1; k <= 16; k++){
+          const t = k / 16;
+          const cur = bezierPoint(p0, p1, p2, p3, t);
+          const d = pointToSegmentDistance(p, prev, cur);
+          if (d < best) best = d;
+          prev = cur;
+        }
+      }
+      return best <= threshold;
+    }
+
+    function findHoverTarget(p){
+      if (state.mode !== "select") return null;
+
+      const candidates = [];
+      for (let cIndex = curves.length - 1; cIndex >= 0; cIndex--){
+        const curve = curves[cIndex];
+        const cid = curve.id;
+
+        const showPts = (cid === state.selectedId) || state.showAllControls;
+        if (showPts){
+          for (let i = 0; i < curve.handlesOut.length; i++){
+            const d = dist(p, curve.handlesOut[i]);
+            if (d <= HANDLE_R + 3) candidates.push({curveId: cid, type:"handleOut", idx:i, d});
+          }
+          for (let i = 0; i < curve.handlesIn.length; i++){
+            const d = dist(p, curve.handlesIn[i]);
+            if (d <= HANDLE_R + 3) candidates.push({curveId: cid, type:"handleIn", idx:i, d});
+          }
+          for (let i = 0; i < curve.anchors.length; i++){
+            const d = dist(p, curve.anchors[i]);
+            if (d <= ANCHOR_R + 3) candidates.push({curveId: cid, type:"anchor", idx:i, d});
+          }
+        }
+      }
+
+      if (candidates.length){
+        candidates.sort((a,b) => a.d - b.d);
+        return candidates[0];
+      }
+
+      for (let cIndex = curves.length - 1; cIndex >= 0; cIndex--){
+        const curve = curves[cIndex];
+        if (hitTestCurve(curve, p, HIT_T)){
+          return {curveId: curve.id, type:"curve", idx: -1, d: 0};
+        }
+      }
+      return null;
+    }
+
+    function applyCursorFromHover(hover){
+      if (state.mode === "draw"){
+        canvas.style.cursor = "crosshair";
+        return;
+      }
+      if (state.isDragging){
+        canvas.style.cursor = "grabbing";
+        return;
+      }
+      if (!hover){
+        canvas.style.cursor = "default";
+        return;
+      }
+      if (hover.type === "curve"){
+        canvas.style.cursor = "pointer";
+      } else {
+        canvas.style.cursor = "grab";
+      }
+    }
+
+    function onPointerDown(ev){
+      if (ev.button !== 0) return;
+      const p = getMousePos(ev);
+      state.isPointerDown = true;
+      state.lastPos = p;
+
+      if (state.mode === "draw"){
+        setSelected(null);
+        state.drawSamples = [p];
+        render();
+        return;
+      }
+
+      const hover = findHoverTarget(p);
+      state.hover = hover;
+
+      if (!hover){
+        setSelected(null);
+        state.drag = null;
+        render();
+        return;
+      }
+
+      setSelected(hover.curveId);
+      const curve = getCurveById(hover.curveId);
+      if (!curve) return;
+
+      const shift = ev.shiftKey;
+      if (hover.type === "anchor"){
+        state.drag = {curveId: hover.curveId, kind: shift ? "curve" : "anchor", idx: hover.idx};
+      } else if (hover.type === "handleOut"){
+        state.drag = {curveId: hover.curveId, kind: "handleOut", idx: hover.idx};
+      } else if (hover.type === "handleIn"){
+        state.drag = {curveId: hover.curveId, kind: "handleIn", idx: hover.idx};
+      } else if (hover.type === "curve"){
+        state.drag = {curveId: hover.curveId, kind: "curve", idx: -1};
+      }
+      state.isDragging = !!state.drag;
+      applyCursorFromHover(state.hover);
+      render();
+    }
+
+    function translateCurve(curve, delta){
+      for (let i = 0; i < curve.anchors.length; i++) curve.anchors[i] = add(curve.anchors[i], delta);
+      for (let i = 0; i < curve.handlesOut.length; i++) curve.handlesOut[i] = add(curve.handlesOut[i], delta);
+      for (let i = 0; i < curve.handlesIn.length; i++) curve.handlesIn[i] = add(curve.handlesIn[i], delta);
+    }
+
+    function onPointerMove(ev){
+      const p = getMousePos(ev);
+      const prev = state.lastPos || p;
+      const delta = sub(p, prev);
+      state.lastPos = p;
+
+      if (state.mode === "draw"){
+        if (state.isPointerDown){
+          const last = state.drawSamples[state.drawSamples.length - 1];
+          if (dist(p, last) > SAMPLE_MIN_DIST){
+            state.drawSamples.push(p);
+          }
+          render();
+        } else {
+          canvas.style.cursor = "crosshair";
+        }
+        return;
+      }
+
+      if (state.isDragging && state.drag){
+        const curve = getCurveById(state.drag.curveId);
+        if (!curve) return;
+
+        if (state.drag.kind === "curve"){
+          translateCurve(curve, delta);
+        } else if (state.drag.kind === "anchor"){
+          const i = state.drag.idx;
+          curve.anchors[i] = add(curve.anchors[i], delta);
+          if (i < curve.handlesOut.length) curve.handlesOut[i] = add(curve.handlesOut[i], delta);
+          if (i > 0) curve.handlesIn[i - 1] = add(curve.handlesIn[i - 1], delta);
+        } else if (state.drag.kind === "handleOut"){
+          const i = state.drag.idx;
+          curve.handlesOut[i] = p;
+          if (i > 0){
+            // C¹ 对称约束：handlesIn[i-1] = 2*A_i − handlesOut[i]
+            const Ai = curve.anchors[i];
+            curve.handlesIn[i - 1] = reflect(curve.handlesOut[i], Ai);
+          }
+        } else if (state.drag.kind === "handleIn"){
+          const i = state.drag.idx;
+          curve.handlesIn[i] = p;
+          const anchorIndex = i + 1;
+          if (anchorIndex < curve.anchors.length - 1){
+            // C¹ 对称约束：handlesOut[i+1] = 2*A_{i+1} − handlesIn[i]
+            const A = curve.anchors[anchorIndex];
+            curve.handlesOut[i + 1] = reflect(curve.handlesIn[i], A);
+          }
+        }
+
+        render();
+        return;
+      }
+
+      const hover = findHoverTarget(p);
+      state.hover = hover;
+      applyCursorFromHover(hover);
+    }
+
+    function onPointerUp(){
+      if (!state.isPointerDown) return;
+      state.isPointerDown = false;
+
+      if (state.mode === "draw"){
+        const samples = state.drawSamples.slice();
+        state.drawSamples = [];
+        if (samples.length >= 2){
+          const curve = buildCurveFromSamples(samples);
+          if (curve){
+            curves.push(curve);
+          }
+        }
+        render();
+        return;
+      }
+
+      state.isDragging = false;
+      state.drag = null;
+      applyCursorFromHover(state.hover);
+      render();
+    }
+
+    function deleteSelected(){
+      if (state.selectedId == null) return;
+      const idx = curves.findIndex(c => c.id === state.selectedId);
+      if (idx >= 0){
+        curves.splice(idx, 1);
+      }
+      setSelected(null);
+      render();
+    }
+
+    function clearAll(){
+      curves.length = 0;
+      setSelected(null);
+      render();
+    }
+
+    function onKeyDown(ev){
+      if (ev.key === "1"){
+        setMode("draw");
+      } else if (ev.key === "2"){
+        setMode("select");
+      } else if (ev.key === "Delete"){
+        deleteSelected();
+      } else if (ev.key === "Escape"){
+        setSelected(null);
+        render();
+      }
+    }
+
+    btnDraw.addEventListener("click", () => setMode("draw"));
+    btnSelect.addEventListener("click", () => setMode("select"));
+    btnShow.addEventListener("click", () => setShowAllControls(!state.showAllControls));
+    btnDelete.addEventListener("click", deleteSelected);
+    btnClear.addEventListener("click", clearAll);
+
+    window.addEventListener("resize", () => render(), {passive:true});
+    window.addEventListener("keydown", onKeyDown);
+
+    canvas.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("mousemove", onPointerMove);
+    window.addEventListener("mouseup", onPointerUp);
+
+    render();
+  })();
+  </script>
+</body>
+</html>
